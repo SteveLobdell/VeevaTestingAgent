@@ -1,0 +1,13 @@
+{
+  "id": "ID",
+  "version_modified_date__v": "VersionModifiedDate",
+  "status__v": "Status",
+  "name__v": "DocumentName",
+  "document_number__v": "DocumentNumber",
+  "product__v": "Products",
+  "audience1__c": "IntendedAudiences",
+  "description__v": "Description",
+  "major_version_number__v": "MajorVersionNumber",
+  "minor_version_number__v": "MinorVersionNumber",
+  "expiration_date__c": "ExpirationDate"
+}
