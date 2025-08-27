@@ -16,46 +16,50 @@ namespace ReachOutVeevaPromoMats.API
     /// <summary>
     ///   Class to encapsulate calls to the Veeva API
     /// </summary>
-    public static class VeevaAPI
+    public class VeevaAPI
     {
-        /// <summary>The session identifier</summary>
-        private static string SessionID;
+        private readonly AppConfiguration _configuration;
+        private string _sessionID = string.Empty;
+
+        public VeevaAPI(AppConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
 
         /// <summary>Queries the specified query.</summary>
         /// <param name="query">The query.</param>
         /// <returns>
         ///   The response object
         /// </returns>
-        public static VeevaAPIResponse Query(string query)
+        public VeevaAPIResponse Query(string query)
         {
             VeevaAPIResponse response = new VeevaAPIResponse();
 
             try
             {
-                RestClient client = new RestClient(TenantConfiguration.GetVeevaAPIEndpoint());
+                RestClient client = new RestClient(_configuration.GetVeevaAPIEndpoint());
 
                 RestRequest request = CreateRequest("/query", Method.Post);
 
                 request.AddParameter("q", query);
 
-
                 response = ExecuteRequest(client, request);
             }
             catch (Exception e) 
             {
-                TenantConfiguration.Logger.Error(e, "Error occurred communicating with Veeva API: {0}.", e.Message);
+                _configuration.Logger.Error(e, "Error occurred communicating with Veeva API: {0}.", e.Message);
             }
 
             return response;
         }
 
-        public static VeevaAPIResponse NextPage(string nextPageUrl)
+        public VeevaAPIResponse NextPage(string nextPageUrl)
         {
             VeevaAPIResponse response = new VeevaAPIResponse();
 
             try
             {
-                RestClient client = new RestClient(TenantConfiguration.GetVeevaAPIBaseAddress());
+                RestClient client = new RestClient(_configuration.GetVeevaAPIBaseAddress());
 
                 RestRequest request = CreateRequest(nextPageUrl, Method.Post);
 
@@ -63,7 +67,7 @@ namespace ReachOutVeevaPromoMats.API
             }
             catch (Exception e)
             {
-                TenantConfiguration.Logger.Error(e, "Error occurred communicating with Veeva API: {0}.", e.Message);
+                _configuration.Logger.Error(e, "Error occurred communicating with Veeva API: {0}.", e.Message);
             }
 
             return response;
@@ -73,17 +77,17 @@ namespace ReachOutVeevaPromoMats.API
         /// <returns>
         ///   Whether we're authorized
         /// </returns>
-        private static bool Authorize()
+        private bool Authorize()
         {
             bool authorized = false;
 
             try
             {
-                RestClient client = new RestClient(TenantConfiguration.GetVeevaAPIEndpoint());
+                RestClient client = new RestClient(_configuration.GetVeevaAPIEndpoint());
 
                 RestRequest request = CreateRequest("/auth", Method.Post);
-                request.AddParameter("username", TenantConfiguration.VeevaAPIUser);
-                request.AddParameter("password", TenantConfiguration.VeevaAPIPassword);
+                request.AddParameter("username", _configuration.VeevaUser);
+                request.AddParameter("password", _configuration.VeevaPassword);
 
                 RestResponse apiResponse = client.Execute(request);
                 if (apiResponse.StatusCode == System.Net.HttpStatusCode.OK)
@@ -92,13 +96,13 @@ namespace ReachOutVeevaPromoMats.API
                     if (response.ResponseStatus != "FAILURE")
                     {
                         authorized = true;
-                        SessionID = response.SessionID;
+                        _sessionID = response.SessionID;
                     }
                 }
             }
             catch (Exception e) 
             {
-                TenantConfiguration.Logger.Error(e, "Error occurred communicating with Veeva API: {0}.", e.Message);
+                _configuration.Logger.Error(e, "Error occurred communicating with Veeva API: {0}.", e.Message);
             }
 
             return authorized;
@@ -124,11 +128,11 @@ namespace ReachOutVeevaPromoMats.API
         /// <returns>
         ///   The API response
         /// </returns>
-        private static VeevaAPIResponse ExecuteRequest(RestClient client, RestRequest request, bool reauthorizeIfNeeded = true)
+        private VeevaAPIResponse ExecuteRequest(RestClient client, RestRequest request, bool reauthorizeIfNeeded = true)
         {
             Authorize();
 
-            request.AddHeader("Authorization", SessionID);
+            request.AddHeader("Authorization", _sessionID);
 
             VeevaAPIResponse response = new VeevaAPIResponse();
 
@@ -142,7 +146,7 @@ namespace ReachOutVeevaPromoMats.API
                     {
                         if(error.Type == "INVALID_SESSION_ID" && reauthorizeIfNeeded)
                         {
-                            SessionID = string.Empty;
+                            _sessionID = string.Empty;
                             return ExecuteRequest(client, request, false);
                         }
                     }
