@@ -5,14 +5,12 @@ using System.Linq;
 using ReachOutVeevaPromoMats.Configurations;
 using Microsoft.VisualBasic.FileIO;
 using ReachOutAuth.Models.Products;
-using Microsoft.VisualBasic.ApplicationServices;
 using ReachOutVeevaPromoMats.API;
 using ReachOutVeevaPromoMats.Models.API;
 using ReachOutAuth.Models.Messages;
 using System.Runtime.CompilerServices;
 using RestSharp;
 using System.Reflection;
-using Microsoft.VisualBasic.Logging;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
 using ReachOutAuth.Models.Authentication;
@@ -25,21 +23,27 @@ using ReachOutAuth.Models.VeevaPromoMats.Data.PropertyMappings;
 namespace ReachOutVeevaPromoMats
 {
     /// <summary>
-    /// The buisness logic of the service
+    /// The business logic of the service
     /// </summary>
     public class BusinessLogic
     {
+        private readonly AppConfiguration _configuration;
+
+        public BusinessLogic(AppConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
         /// <summary>
         /// Parses the CSV.
         /// </summary>
         /// <param name="path">The path.</param>
         /// <returns>ProductRequest.</returns>
 
-        public static VeevaPromoMatsRequest ParseCSV(string path)
+        public VeevaPromoMatsRequest ParseCSV(string path)
         {
             VeevaPromoMatsRequest request = new VeevaPromoMatsRequest()
             {
-                ClientID = TenantConfiguration.ReachOutClientID,
+                ClientID = _configuration.ReachOutClientID,
                 Data = new JArray()
             };
 
@@ -70,24 +74,25 @@ namespace ReachOutVeevaPromoMats
             }
             catch (Exception e)
             {
-                TenantConfiguration.Logger.Error(e, e.Message);
+                _configuration.Logger.Error(e, e.Message);
             }
 
             return request;
         }
         
-        public static void SweepAPIForProducts()
+        public void SweepAPIForProducts()
         {
             VeevaPromoMatsRequest request = new VeevaPromoMatsRequest()
             {
-                ClientID = TenantConfiguration.ReachOutClientID
+                ClientID = _configuration.ReachOutClientID
             };
 
             try
             {
-                TenantConfiguration.Logger.Info($"Sweeping API for proudct updates since {DateTime.Now.AddHours(-TenantConfiguration.VeevaSweepTimeOverlapHours - 24).ToString()}.");
+                _configuration.Logger.Info($"Sweeping API for product updates since {DateTime.Now.AddHours(-_configuration.VeevaSweepTimeOverlapHours - 24).ToString()}.");
 
-                VeevaAPIResponse response = VeevaAPI.Query(GenerateQuery());
+                var veevaAPI = new VeevaAPI(_configuration);
+                VeevaAPIResponse response = veevaAPI.Query(GenerateQuery());
                 
                 List<VeevaAPIResponseData> responses = new List<VeevaAPIResponseData>();
                 if(response.Data != null)
@@ -99,7 +104,7 @@ namespace ReachOutVeevaPromoMats
 
                     while (!string.IsNullOrEmpty(response.ResponseDetails.NextPage))
                     {
-                        response = VeevaAPI.NextPage(response.ResponseDetails.NextPage);
+                        response = veevaAPI.NextPage(response.ResponseDetails.NextPage);
 
                         foreach (JObject data in response.Data)
                         {
@@ -107,9 +112,9 @@ namespace ReachOutVeevaPromoMats
                         }
                     }
 
-                    TenantConfiguration.Logger.Info($"Found {request.Data.Count()} products updates.");
+                    _configuration.Logger.Info($"Found {request.Data.Count()} products updates.");
 
-                    if (!TenantConfiguration.Debug)
+                    if (!_configuration.Debug)
                     {
                         if (request.Data.Count() > 0)
                         {
@@ -125,22 +130,22 @@ namespace ReachOutVeevaPromoMats
                                 formatted = r;
                             }
 
-                            TenantConfiguration.Logger.Info(formatted);
+                            _configuration.Logger.Info(formatted);
                         }
                     }
                     else
                     {
-                        TenantConfiguration.Logger.Info(JsonConvert.SerializeObject(responses, Formatting.Indented));
+                        _configuration.Logger.Info(JsonConvert.SerializeObject(responses, Formatting.Indented));
                     }
                 }
                 else
                 {
-                    TenantConfiguration.Logger.Info(JsonConvert.SerializeObject(response, Formatting.Indented));
+                    _configuration.Logger.Info(JsonConvert.SerializeObject(response, Formatting.Indented));
                 }
             }
             catch (Exception e)
             {
-                TenantConfiguration.Logger.Error(e, e.Message);
+                _configuration.Logger.Error(e, e.Message);
             }
         }
 
@@ -148,13 +153,13 @@ namespace ReachOutVeevaPromoMats
         /// Generates the query.
         /// </summary>
         /// <returns>System.String.</returns>
-        private static string GenerateQuery()
+        private string GenerateQuery()
         {
             string query = "select ";
-            Dictionary<string, String> mappings = VeevaPromoMatsDocumentMapper.GetClientDocumentMapping(TenantConfiguration.ReachOutClientID);
+            Dictionary<string, String> mappings = VeevaPromoMatsDocumentMapper.GetClientDocumentMapping(_configuration.ReachOutClientID);
 
             // Modified Date is UTC so we need to go back 24 hours from now in UTC time
-            DateTimeOffset timeSinceLastSweepUtc = DateTime.UtcNow.AddHours(-TenantConfiguration.VeevaSweepTimeOverlapHours - 24);
+            DateTimeOffset timeSinceLastSweepUtc = DateTime.UtcNow.AddHours(-_configuration.VeevaSweepTimeOverlapHours - 24);
 
             for(int i = 0; i < mappings.Count(); i++)
             {
@@ -170,7 +175,7 @@ namespace ReachOutVeevaPromoMats
                 }
             }
 
-            query += $"from documents where minor_version_number__v = 0 and version_modified_date__v > '{timeSinceLastSweepUtc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")}' pagesize {TenantConfiguration.VeevaResultPageSize}";
+            query += $"from documents where minor_version_number__v = 0 and version_modified_date__v > '{timeSinceLastSweepUtc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")}' pagesize {_configuration.VeevaResultPageSize}";
 
             return query;
         }
@@ -181,17 +186,17 @@ namespace ReachOutVeevaPromoMats
         /// <param name="request">The request.</param>
         /// <returns>System.String.</returns>
         /// <exception cref="System.Exception">Authentication failed for user " + auth.UserName</exception>
-        public static string SendVeevaRequest(VeevaPromoMatsRequest veevaRequest)
+        public string SendVeevaRequest(VeevaPromoMatsRequest veevaRequest)
         {
-            if (!TenantConfiguration.Debug)
+            if (!_configuration.Debug)
             {
-                Authenticator auth = new Authenticator(TenantConfiguration.AbleAuthUser, TenantConfiguration.AbleAuthSecret, TenantConfiguration.AbleAuthUrl, TenantConfiguration.AbleAuthAction);
+                Authenticator auth = new Authenticator(_configuration.AbleAuthUser, _configuration.AbleAuthSecret, _configuration.AbleAuthUrl, _configuration.AbleAuthAction);
                 if (!auth.IsAuthenticated)
                 {
                     throw new Exception("Authentication failed for user " + auth.UserName);
                 }
 
-                var options = new RestClientOptions(TenantConfiguration.AbleAuthUrl)
+                var options = new RestClientOptions(_configuration.AbleAuthUrl)
                 {
                     MaxTimeout = int.MaxValue
                 };
@@ -200,7 +205,7 @@ namespace ReachOutVeevaPromoMats
 
                 string requestBody = JsonConvert.SerializeObject(veevaRequest);
 
-                RestRequest request = new RestRequest(TenantConfiguration.AbleVeevaAction, Method.Post);
+                RestRequest request = new RestRequest(_configuration.AbleVeevaAction, Method.Post);
                 request.AddHeader("Authorization", "Bearer " + auth.Token);
                 request.AddParameter("application/json", JsonConvert.SerializeObject(veevaRequest), ParameterType.RequestBody);
                 request.RequestFormat = DataFormat.Json;
@@ -216,24 +221,24 @@ namespace ReachOutVeevaPromoMats
         /// </summary>
         /// <param name="productRequest">The product request.</param>
         /// <exception cref="System.Exception">Authentication failed for user " + auth.UserName</exception>
-        public static string SendProductRequest(VeevaPromoMatsRequest productRequest)
+        public string SendProductRequest(VeevaPromoMatsRequest productRequest)
         {
-            if (!TenantConfiguration.Debug)
+            if (!_configuration.Debug)
             {
-                Authenticator auth = new Authenticator(TenantConfiguration.AbleAuthUser, TenantConfiguration.AbleAuthSecret, TenantConfiguration.AbleAuthUrl, TenantConfiguration.AbleAuthAction);
+                Authenticator auth = new Authenticator(_configuration.AbleAuthUser, _configuration.AbleAuthSecret, _configuration.AbleAuthUrl, _configuration.AbleAuthAction);
                 if (!auth.IsAuthenticated)
                 {
                     throw new Exception("Authentication failed for user " + auth.UserName);
                 }
 
-                var options = new RestClientOptions(TenantConfiguration.AbleAuthUrl)
+                var options = new RestClientOptions(_configuration.AbleAuthUrl)
                 {
                     MaxTimeout = int.MaxValue
                 };
 
                 RestClient client = new RestClient(options);
 
-                RestRequest request = new RestRequest(TenantConfiguration.AbleVeevaAction, Method.Post);
+                RestRequest request = new RestRequest(_configuration.AbleVeevaAction, Method.Post);
                 request.AddHeader("Authorization", "Bearer " + auth.Token);
                 request.RequestFormat = DataFormat.Json;
                 request.AddJsonBody(JsonConvert.SerializeObject(productRequest));
@@ -247,18 +252,18 @@ namespace ReachOutVeevaPromoMats
         /// <summary>
         /// Processes the dropped files.
         /// </summary>
-        public static void ProcessDroppedFiles()
+        public void ProcessDroppedFiles()
         {
             try
             {
-                foreach (string file in Directory.GetFiles(TenantConfiguration.DropFolder))
+                foreach (string file in Directory.GetFiles(_configuration.DropFolder))
                 {
                     try
                     {
                         VeevaPromoMatsRequest productRequest = ParseCSV(file);                        
                         string response = SendVeevaRequest(productRequest);
 
-                        if (TenantConfiguration.ArchiveDropFiles)
+                        if (_configuration.ArchiveDropFiles)
                         {
                             string fileName = Path.GetFileNameWithoutExtension(file);
                             string directory = Path.GetDirectoryName(file);
@@ -277,22 +282,22 @@ namespace ReachOutVeevaPromoMats
 
                         try
                         {
-                            TenantConfiguration.Logger.Info($"Response: {JObject.Parse(response).ToString()}");
+                            _configuration.Logger.Info($"Response: {JObject.Parse(response).ToString()}");
                         }
                         catch
                         {
-                            TenantConfiguration.Logger.Info($"Response: {response}");
+                            _configuration.Logger.Info($"Response: {response}");
                         }
                     }
                     catch(Exception e)
                     {
-                        TenantConfiguration.Logger.Error(e, "Error processing drop file: {0} - {1}", file, e.Message + ":" + e.StackTrace);
+                        _configuration.Logger.Error(e, "Error processing drop file: {0} - {1}", file, e.Message + ":" + e.StackTrace);
                     }
                 }
             }
             catch (Exception e)
             {
-                TenantConfiguration.Logger.Error(e, e.Message);
+                _configuration.Logger.Error(e, e.Message);
             }
         }
 
