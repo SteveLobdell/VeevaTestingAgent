@@ -1,1 +1,15 @@
-# Temporary Files\nnuget.exe
+# Build artifacts
+bin/
+obj/
+packages/
+
+# Temporary files
+nuget.exe
+
+# Visual Studio files
+*.user
+*.suo
+*.cache
+
+# Logs
+logs/
